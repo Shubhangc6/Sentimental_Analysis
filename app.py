@@ -1,35 +1,144 @@
 import streamlit as st
+import pandas as pd
 from transformers import pipeline
 
-# Load model (only once)
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(
+    page_title="AI Sentiment Studio",
+    page_icon="🤖",
+    layout="wide"
+)
+
+# ---------------- LOAD MODELS ----------------
 @st.cache_resource
-def load_model():
-    return pipeline(
+def load_models():
+    model1 = pipeline(
         "sentiment-analysis",
         model="distilbert/distilbert-base-uncased-finetuned-sst-2-english"
     )
 
-classifier = load_model()
+    model2 = pipeline(
+        "sentiment-analysis",
+        model="nlptown/bert-base-multilingual-uncased-sentiment"
+    )
 
-# UI
-st.title("Sentiment Analysis App 😊")
-st.write("Enter a sentence to analyze its sentiment")
+    return model1, model2
 
-user_input = st.text_area("Your text here:")
+model_basic, model_multi = load_models()
 
-if st.button("Analyze"):
-    if user_input.strip() != "":
-        result = classifier(user_input)[0]
+# ---------------- HEADER ----------------
+st.title("🤖 AI Sentiment Studio")
+st.caption("Analyze, compare & visualize sentiment like a pro")
 
-        label = result["label"]
-        score = result["score"]
+# ---------------- TABS ----------------
+tab1, tab2, tab3 = st.tabs(["📝 Single Text", "📂 Batch Analysis", "📊 Insights"])
 
-        st.write(f"**Sentiment:** {label}")
-        st.write(f"**Confidence:** {score:.4f}")
+# =========================================================
+# 📝 TAB 1: SINGLE TEXT
+# =========================================================
+with tab1:
+    st.subheader("Analyze a sentence")
 
-        if label == "POSITIVE":
-            st.success("This sounds positive! 👍")
+    text = st.text_area("Enter text here:")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        use_multi = st.checkbox("🌍 Use multilingual model")
+
+    with col2:
+        compare = st.checkbox("⚖️ Compare both models")
+
+    if st.button("Analyze Text"):
+        if text.strip() == "":
+            st.warning("Enter some text")
         else:
-            st.error("This sounds negative 👎")
-    else:
-        st.warning("Please enter some text.")
+            with st.spinner("Analyzing..."):
+                if compare:
+                    res1 = model_basic(text)[0]
+                    res2 = model_multi(text)[0]
+
+                    st.write("### 🔍 Comparison")
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        st.metric("Basic Model", res1["label"])
+
+                    with c2:
+                        st.metric("Multilingual Model", res2["label"])
+
+                else:
+                    model = model_multi if use_multi else model_basic
+                    res = model(text)[0]
+
+                    st.metric("Sentiment", res["label"])
+                    st.progress(int(res["score"] * 100))
+
+# =========================================================
+# 📂 TAB 2: BATCH ANALYSIS
+# =========================================================
+with tab2:
+    st.subheader("Upload dataset")
+
+    file = st.file_uploader("Upload CSV", type=["csv"])
+
+    if file:
+        df = pd.read_csv(file)
+        st.dataframe(df.head())
+
+        column = st.selectbox("Select text column", df.columns)
+
+        if st.button("Run Analysis"):
+            results = []
+
+            with st.spinner("Processing..."):
+                for text in df[column]:
+                    try:
+                        res = model_basic(str(text))[0]
+                        results.append(res["label"])
+                    except:
+                        results.append("ERROR")
+
+            df["Sentiment"] = results
+
+            st.dataframe(df)
+
+            # Chart
+            st.write("### 📊 Distribution")
+            st.bar_chart(df["Sentiment"].value_counts())
+
+            # Download
+            st.download_button(
+                "Download Results",
+                df.to_csv(index=False),
+                "results.csv"
+            )
+
+# =========================================================
+# 📊 TAB 3: INSIGHTS
+# =========================================================
+with tab3:
+    st.subheader("App Insights")
+
+    st.markdown("""
+    ### 🚀 Features:
+    - Real-time sentiment prediction
+    - Batch dataset processing
+    - Model comparison
+    - Multilingual support
+    - Data visualization
+
+    ### 🧠 Models Used:
+    - DistilBERT (fast, English)
+    - Multilingual BERT
+
+    ### 💡 Use Cases:
+    - Product review analysis
+    - Social media monitoring
+    - Customer feedback insights
+    """)
+
+# ---------------- FOOTER ----------------
+st.markdown("---")
+st.caption("Built with ❤️ using Streamlit & Transformers")
