@@ -3,23 +3,28 @@ import pandas as pd
 from transformers import pipeline
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# ---------------- PAGE CONFIG ----------------
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 st.set_page_config(
     page_title="AI Sentiment Studio",
     page_icon="🤖",
     layout="wide"
 )
 
-# ---------------- LOAD MODELS ----------------
+# =========================================================
+# LOAD MODELS
+# =========================================================
 @st.cache_resource
 def load_models():
 
-    # Faster sentiment model
+    # Fast transformer model
     model1 = pipeline(
         "sentiment-analysis",
         model="cardiffnlp/twitter-roberta-base-sentiment"
     )
 
+    # Multilingual model
     model2 = pipeline(
         "sentiment-analysis",
         model="nlptown/bert-base-multilingual-uncased-sentiment"
@@ -29,13 +34,29 @@ def load_models():
 
 
 model_basic, model_multi = load_models()
+
+# VADER analyzer for ultra-fast batch processing
 analyzer = SentimentIntensityAnalyzer()
 
-# ---------------- HEADER ----------------
-st.title("🤖 AI Sentiment Studio")
-st.caption("Analyze, compare & visualize sentiment like a pro")
+# =========================================================
+# LABEL MAPPING
+# =========================================================
+label_map = {
+    "LABEL_0": "NEGATIVE",
+    "LABEL_1": "NEUTRAL",
+    "LABEL_2": "POSITIVE"
+}
 
-# ---------------- TABS ----------------
+# =========================================================
+# HEADER
+# =========================================================
+st.title("🤖 AI Sentiment Studio")
+
+st.caption("Transformer-Based NLP Sentiment Analysis Dashboard")
+
+# =========================================================
+# TABS
+# =========================================================
 tab1, tab2, tab3 = st.tabs([
     "📝 Single Text",
     "📂 Batch Analysis",
@@ -43,7 +64,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # =========================================================
-# 📝 TAB 1: SINGLE TEXT
+# TAB 1 : SINGLE TEXT ANALYSIS
 # =========================================================
 with tab1:
 
@@ -62,167 +83,285 @@ with tab1:
     if st.button("Analyze Text"):
 
         if text.strip() == "":
-            st.warning("Enter some text")
+            st.warning("Please enter some text")
 
         else:
 
             with st.spinner("Analyzing..."):
 
+                # =================================================
+                # COMPARE MODELS
+                # =================================================
                 if compare:
 
                     res1 = model_basic(text)[0]
                     res2 = model_multi(text)[0]
 
-                    st.write("### 🔍 Comparison")
+                    sentiment1 = label_map.get(
+                        res1["label"],
+                        res1["label"]
+                    )
+
+                    sentiment2 = label_map.get(
+                        res2["label"],
+                        res2["label"]
+                    )
+
+                    st.write("## 🔍 Model Comparison")
 
                     c1, c2 = st.columns(2)
 
                     with c1:
-                        st.metric("Basic Model", res1["label"])
+
+                        st.metric(
+                            "Basic Model",
+                            sentiment1
+                        )
+
+                        st.progress(
+                            int(res1["score"] * 100)
+                        )
+
+                        st.write(
+                            f"Confidence: {round(res1['score'] * 100, 2)}%"
+                        )
 
                     with c2:
-                        st.metric("Multilingual Model", res2["label"])
 
+                        st.metric(
+                            "Multilingual Model",
+                            sentiment2
+                        )
+
+                        st.progress(
+                            int(res2["score"] * 100)
+                        )
+
+                        st.write(
+                            f"Confidence: {round(res2['score'] * 100, 2)}%"
+                        )
+
+                # =================================================
+                # SINGLE MODEL
+                # =================================================
                 else:
 
-                    model = model_multi if use_multi else model_basic
+                    model = (
+                        model_multi
+                        if use_multi
+                        else model_basic
+                    )
 
                     res = model(text)[0]
 
-                    st.metric("Sentiment", res["label"])
+                    sentiment = label_map.get(
+                        res["label"],
+                        res["label"]
+                    )
 
-                    st.progress(int(res["score"] * 100))
+                    st.metric(
+                        "Sentiment",
+                        sentiment
+                    )
 
-                    st.write(f"Confidence: {round(res['score'] * 100, 2)}%")
+                    st.progress(
+                        int(res["score"] * 100)
+                    )
+
+                    st.write(
+                        f"Confidence: {round(res['score'] * 100, 2)}%"
+                    )
 
 # =========================================================
-# 📂 TAB 2: FAST BATCH ANALYSIS
+# TAB 2 : FAST BATCH ANALYSIS
 # =========================================================
 with tab2:
 
-    st.subheader("⚡ Ultra Fast Batch Sentiment Analysis")
+    st.subheader("⚡ Full Dataset Batch Sentiment Analysis")
 
-    file = st.file_uploader("Upload CSV", type=["csv"])
+    file = st.file_uploader(
+        "Upload CSV Dataset",
+        type=["csv"]
+    )
 
     if file:
 
-        df = pd.read_csv(file)
+        try:
 
-        st.success(f"Dataset Loaded Successfully ✅ ({len(df)} rows)")
+            # Load dataset
+            df = pd.read_csv(file)
 
-        st.dataframe(df.head())
-
-        column = st.selectbox(
-            "Select text column",
-            df.columns
-        )
-
-        max_rows = st.slider(
-            "Rows to analyze",
-            min_value=10,
-            max_value=min(len(df), 100000),
-            value=min(len(df), 1000)
-        )
-
-        if st.button("Run Analysis"):
-
-            df_subset = df.head(max_rows).copy()
-
-            progress = st.progress(0)
-
-            sentiments = []
-            scores = []
-
-            texts = df_subset[column].astype(str).tolist()
-
-            with st.spinner("⚡ Running ultra-fast sentiment analysis..."):
-
-                for i, text in enumerate(texts):
-
-                    score = analyzer.polarity_scores(text)
-
-                    compound = score["compound"]
-
-                    # Sentiment rules
-                    if compound >= 0.05:
-                        sentiment = "POSITIVE"
-
-                    elif compound <= -0.05:
-                        sentiment = "NEGATIVE"
-
-                    else:
-                        sentiment = "NEUTRAL"
-
-                    sentiments.append(sentiment)
-
-                    scores.append(round(compound * 100, 2))
-
-                    # Progress update
-                    progress.progress((i + 1) / len(texts))
-
-            # Add results
-            df_subset["Sentiment"] = sentiments
-            df_subset["Confidence Score"] = scores
-
-            st.success("✅ Analysis Completed")
-
-            # Results table
-            st.write("### 📄 Results")
-            st.dataframe(df_subset)
-
-            # Chart
-            st.write("### 📊 Sentiment Distribution")
-            st.bar_chart(
-                df_subset["Sentiment"].value_counts()
+            st.success(
+                f"Dataset Loaded Successfully ✅ ({len(df)} rows)"
             )
 
-            # Summary
-            st.write("### 📈 Summary")
-            st.write(
-                df_subset["Sentiment"].value_counts()
+            st.write("### 📄 Dataset Preview")
+
+            st.dataframe(df.head())
+
+            # Select text column
+            column = st.selectbox(
+                "Select Text Column",
+                df.columns
             )
 
-            # Download
-            csv = df_subset.to_csv(
-                index=False
-            ).encode("utf-8")
+            if st.button("Run Analysis"):
 
-            st.download_button(
-                "⬇ Download Results CSV",
-                csv,
-                "sentiment_results.csv",
-                "text/csv"
-            )
+                texts = (
+                    df[column]
+                    .astype(str)
+                    .fillna("")
+                    .tolist()
+                )
 
+                sentiments = []
+                scores = []
+
+                progress_bar = st.progress(0)
+
+                status = st.empty()
+
+                with st.spinner(
+                    "⚡ Running sentiment analysis on full dataset..."
+                ):
+
+                    for i, text in enumerate(texts):
+
+                        # Fast VADER prediction
+                        score = analyzer.polarity_scores(text)
+
+                        compound = score["compound"]
+
+                        # Sentiment rules
+                        if compound >= 0.05:
+                            sentiment = "POSITIVE"
+
+                        elif compound <= -0.05:
+                            sentiment = "NEGATIVE"
+
+                        else:
+                            sentiment = "NEUTRAL"
+
+                        sentiments.append(sentiment)
+
+                        scores.append(
+                            round(compound * 100, 2)
+                        )
+
+                        # Progress update
+                        progress_bar.progress(
+                            (i + 1) / len(texts)
+                        )
+
+                        status.text(
+                            f"Processed {i + 1}/{len(texts)} rows"
+                        )
+
+                # Add predictions
+                df["Sentiment"] = sentiments
+
+                df["Confidence Score"] = scores
+
+                # =================================================
+                # RESULTS
+                # =================================================
+                st.success(
+                    "✅ Full Dataset Analysis Completed"
+                )
+
+                st.write("## 📊 Results")
+
+                st.dataframe(df)
+
+                # =================================================
+                # CHART
+                # =================================================
+                st.write("## 📈 Sentiment Distribution")
+
+                sentiment_counts = (
+                    df["Sentiment"]
+                    .value_counts()
+                )
+
+                st.bar_chart(sentiment_counts)
+
+                # =================================================
+                # SUMMARY
+                # =================================================
+                st.write("## 📋 Summary")
+
+                st.write(sentiment_counts)
+
+                # =================================================
+                # DOWNLOAD
+                # =================================================
+                csv = df.to_csv(
+                    index=False
+                ).encode("utf-8")
+
+                st.download_button(
+                    label="⬇ Download Results CSV",
+                    data=csv,
+                    file_name="sentiment_results.csv",
+                    mime="text/csv"
+                )
+
+        except Exception as e:
+
+            st.error(f"Error: {e}")
 
 # =========================================================
-# 📊 TAB 3: INSIGHTS
+# TAB 3 : INSIGHTS
 # =========================================================
 with tab3:
 
-    st.subheader("📊 App Insights")
+    st.subheader("📊 Application Insights")
 
     st.markdown("""
-    ### 🚀 Features
-    - Real-time sentiment prediction
-    - Fast batch dataset processing
+    ## 🚀 Features
+
+    - Real-time sentiment analysis
+    - Full dataset batch processing
     - Transformer-based NLP
-    - Multilingual support
-    - Interactive visualization
-    - Downloadable reports
+    - Multilingual sentiment prediction
+    - Interactive visualizations
+    - Downloadable prediction reports
 
-    ### 🧠 Models Used
-    - Twitter RoBERTa Sentiment
-    - Multilingual BERT
+    ---
 
-    ### 💡 Use Cases
+    ## 🧠 Models Used
+
+    ### 1️⃣ Twitter RoBERTa
+    - Fast transformer model
+    - Optimized for sentiment analysis
+    - Excellent for social media/reviews
+
+    ### 2️⃣ Multilingual BERT
+    - Supports multiple languages
+    - Transformer-based NLP
+    - High accuracy multilingual predictions
+
+    ### 3️⃣ VADER Sentiment
+    - Extremely fast sentiment engine
+    - Used for large dataset analysis
+    - Optimized for production speed
+
+    ---
+
+    ## 💡 Use Cases
+
     - Product review analysis
-    - Customer feedback analytics
-    - Social media monitoring
-    - Brand sentiment tracking
+    - Customer feedback analysis
+    - Social media sentiment tracking
+    - Brand monitoring
+    - Survey response analysis
     """)
 
-# ---------------- FOOTER ----------------
+# =========================================================
+# FOOTER
+# =========================================================
 st.markdown("---")
 
-st.caption("Built with ❤️ using Streamlit & Transformers")
+st.caption(
+    "Built with ❤️ using Streamlit, Transformers & NLP"
+)
