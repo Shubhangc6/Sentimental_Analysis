@@ -84,77 +84,37 @@ with tab2:
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
-        # Faster CSV loading
         df = pd.read_csv(file)
-
-        st.success(f"Dataset Loaded Successfully ✅ ({len(df)} rows)")
         st.dataframe(df.head())
 
-        # Select column
         column = st.selectbox("Select text column", df.columns)
 
-        # Optional row limit for huge datasets
-        max_rows = st.slider(
-            "Select number of rows to analyze",
-            min_value=10,
-            max_value=min(len(df), 5000),
-            value=min(len(df), 500)
-        )
-
         if st.button("Run Analysis"):
+            results = []
 
-            # Copy selected rows only
-            df_subset = df.head(max_rows).copy()
+            with st.spinner("Processing..."):
+                for text in df[column]:
+                    try:
+                        res = model_basic(str(text))[0]
+                        results.append(res["label"])
+                    except:
+                        results.append("ERROR")
 
-            with st.spinner("⚡ Running AI sentiment analysis..."):
+            df["Sentiment"] = results
 
-                try:
-                    # Convert text column into list
-                    texts = df_subset[column].astype(str).tolist()
+            st.dataframe(df)
 
-                    # Batch prediction (MUCH FASTER)
-                    predictions = model_basic(
-                        texts,
-                        batch_size=32,
-                        truncation=True
-                    )
+            # Chart
+            st.write("### 📊 Distribution")
+            st.bar_chart(df["Sentiment"].value_counts())
 
-                    # Extract labels
-                    results = [pred["label"] for pred in predictions]
-
-                    # Confidence scores
-                    scores = [round(pred["score"] * 100, 2) for pred in predictions]
-
-                    # Add results to dataframe
-                    df_subset["Sentiment"] = results
-                    df_subset["Confidence (%)"] = scores
-
-                    st.success("Analysis Completed Successfully ✅")
-
-                except Exception as e:
-                    st.error(f"Error during analysis: {e}")
-
-            # Show results
-            st.write("### 📄 Results")
-            st.dataframe(df_subset)
-
-            # Distribution chart
-            st.write("### 📊 Sentiment Distribution")
-            st.bar_chart(df_subset["Sentiment"].value_counts())
-
-            # Sentiment counts
-            st.write("### 📈 Summary")
-            st.write(df_subset["Sentiment"].value_counts())
-
-            # Download results
-            csv = df_subset.to_csv(index=False).encode("utf-8")
-
+            # Download
             st.download_button(
-                label="⬇ Download Results CSV",
-                data=csv,
-                file_name="sentiment_results.csv",
-                mime="text/csv"
+                "Download Results",
+                df.to_csv(index=False),
+                "results.csv"
             )
+
 # =========================================================
 # 📊 TAB 3: INSIGHTS
 # =========================================================
