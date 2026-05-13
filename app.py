@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from transformers import pipeline
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -28,6 +29,7 @@ def load_models():
 
 
 model_basic, model_multi = load_models()
+analyzer = SentimentIntensityAnalyzer()
 
 # ---------------- HEADER ----------------
 st.title("🤖 AI Sentiment Studio")
@@ -94,130 +96,104 @@ with tab1:
                     st.write(f"Confidence: {round(res['score'] * 100, 2)}%")
 
 # =========================================================
-# 📂 TAB 2: BATCH ANALYSIS (OPTIMIZED)
+# 📂 TAB 2: FAST BATCH ANALYSIS
 # =========================================================
 with tab2:
 
-    st.subheader("⚡ Fast Batch Sentiment Analysis")
+    st.subheader("⚡ Ultra Fast Batch Sentiment Analysis")
 
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
 
-        # Fast CSV loading
         df = pd.read_csv(file)
 
         st.success(f"Dataset Loaded Successfully ✅ ({len(df)} rows)")
 
         st.dataframe(df.head())
 
-        # Select column
         column = st.selectbox(
             "Select text column",
             df.columns
         )
 
-        # Row limiter for speed
         max_rows = st.slider(
-            "Select rows to analyze",
+            "Rows to analyze",
             min_value=10,
-            max_value=min(len(df), 5000),
-            value=min(len(df), 500)
+            max_value=min(len(df), 100000),
+            value=min(len(df), 1000)
         )
 
         if st.button("Run Analysis"):
 
-            # Select only needed rows
             df_subset = df.head(max_rows).copy()
-
-            # Clean + shorten text (MAJOR SPEED BOOST)
-            texts = (
-                df_subset[column]
-                .astype(str)
-                .str.slice(0, 200)
-                .tolist()
-            )
-
-            results = []
-            scores = []
 
             progress = st.progress(0)
 
-            status = st.empty()
+            sentiments = []
+            scores = []
 
-            try:
+            texts = df_subset[column].astype(str).tolist()
 
-                with st.spinner("⚡ Running AI sentiment analysis..."):
+            with st.spinner("⚡ Running ultra-fast sentiment analysis..."):
 
-                    batch_size = 64
+                for i, text in enumerate(texts):
 
-                    for i in range(0, len(texts), batch_size):
+                    score = analyzer.polarity_scores(text)
 
-                        batch = texts[i:i + batch_size]
+                    compound = score["compound"]
 
-                        preds = model_basic(
-                            batch,
-                            truncation=True
-                        )
+                    # Sentiment rules
+                    if compound >= 0.05:
+                        sentiment = "POSITIVE"
 
-                        for pred in preds:
+                    elif compound <= -0.05:
+                        sentiment = "NEGATIVE"
 
-                            results.append(pred["label"])
+                    else:
+                        sentiment = "NEUTRAL"
 
-                            scores.append(
-                                round(pred["score"] * 100, 2)
-                            )
+                    sentiments.append(sentiment)
 
-                        # Progress update
-                        progress.progress(
-                            min((i + batch_size) / len(texts), 1.0)
-                        )
+                    scores.append(round(compound * 100, 2))
 
-                        status.text(
-                            f"Processed {min(i + batch_size, len(texts))}/{len(texts)} rows"
-                        )
+                    # Progress update
+                    progress.progress((i + 1) / len(texts))
 
-                # Add predictions
-                df_subset["Sentiment"] = results
+            # Add results
+            df_subset["Sentiment"] = sentiments
+            df_subset["Confidence Score"] = scores
 
-                df_subset["Confidence (%)"] = scores
+            st.success("✅ Analysis Completed")
 
-                st.success("✅ Analysis Completed")
+            # Results table
+            st.write("### 📄 Results")
+            st.dataframe(df_subset)
 
-                # Show results
-                st.write("### 📄 Results")
+            # Chart
+            st.write("### 📊 Sentiment Distribution")
+            st.bar_chart(
+                df_subset["Sentiment"].value_counts()
+            )
 
-                st.dataframe(df_subset)
+            # Summary
+            st.write("### 📈 Summary")
+            st.write(
+                df_subset["Sentiment"].value_counts()
+            )
 
-                # Distribution chart
-                st.write("### 📊 Sentiment Distribution")
+            # Download
+            csv = df_subset.to_csv(
+                index=False
+            ).encode("utf-8")
 
-                st.bar_chart(
-                    df_subset["Sentiment"].value_counts()
-                )
+            st.download_button(
+                "⬇ Download Results CSV",
+                csv,
+                "sentiment_results.csv",
+                "text/csv"
+            )
 
-                # Summary
-                st.write("### 📈 Summary")
-
-                st.write(
-                    df_subset["Sentiment"].value_counts()
-                )
-
-                # Download CSV
-                csv = df_subset.to_csv(
-                    index=False
-                ).encode("utf-8")
-
-                st.download_button(
-                    label="⬇ Download Results CSV",
-                    data=csv,
-                    file_name="sentiment_results.csv",
-                    mime="text/csv"
-                )
-
-            except Exception as e:
-
-                st.error(f"Error during analysis: {e}")
 
 # =========================================================
 # 📊 TAB 3: INSIGHTS
