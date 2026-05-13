@@ -1,5 +1,10 @@
 streamlit
-transformers
-torch
 pandas
+numpy
+scikit-learn
+joblib
+nltk
+torch
+torchvision
+transformers
 vaderSentiment
