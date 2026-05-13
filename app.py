@@ -12,9 +12,11 @@ st.set_page_config(
 # ---------------- LOAD MODELS ----------------
 @st.cache_resource
 def load_models():
+
+    # Faster sentiment model
     model1 = pipeline(
         "sentiment-analysis",
-        model="distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+        model="cardiffnlp/twitter-roberta-base-sentiment"
     )
 
     model2 = pipeline(
@@ -24,6 +26,7 @@ def load_models():
 
     return model1, model2
 
+
 model_basic, model_multi = load_models()
 
 # ---------------- HEADER ----------------
@@ -31,12 +34,17 @@ st.title("🤖 AI Sentiment Studio")
 st.caption("Analyze, compare & visualize sentiment like a pro")
 
 # ---------------- TABS ----------------
-tab1, tab2, tab3 = st.tabs(["📝 Single Text", "📂 Batch Analysis", "📊 Insights"])
+tab1, tab2, tab3 = st.tabs([
+    "📝 Single Text",
+    "📂 Batch Analysis",
+    "📊 Insights"
+])
 
 # =========================================================
 # 📝 TAB 1: SINGLE TEXT
 # =========================================================
 with tab1:
+
     st.subheader("Analyze a sentence")
 
     text = st.text_area("Enter text here:")
@@ -50,11 +58,16 @@ with tab1:
         compare = st.checkbox("⚖️ Compare both models")
 
     if st.button("Analyze Text"):
+
         if text.strip() == "":
             st.warning("Enter some text")
+
         else:
+
             with st.spinner("Analyzing..."):
+
                 if compare:
+
                     res1 = model_basic(text)[0]
                     res2 = model_multi(text)[0]
 
@@ -69,33 +82,44 @@ with tab1:
                         st.metric("Multilingual Model", res2["label"])
 
                 else:
+
                     model = model_multi if use_multi else model_basic
+
                     res = model(text)[0]
 
                     st.metric("Sentiment", res["label"])
+
                     st.progress(int(res["score"] * 100))
 
+                    st.write(f"Confidence: {round(res['score'] * 100, 2)}%")
+
 # =========================================================
-# 📂 TAB 2: BATCH ANALYSIS
+# 📂 TAB 2: BATCH ANALYSIS (OPTIMIZED)
 # =========================================================
 with tab2:
-    st.subheader("Upload dataset")
+
+    st.subheader("⚡ Fast Batch Sentiment Analysis")
 
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
-        # Faster CSV loading
+
+        # Fast CSV loading
         df = pd.read_csv(file)
 
         st.success(f"Dataset Loaded Successfully ✅ ({len(df)} rows)")
+
         st.dataframe(df.head())
 
         # Select column
-        column = st.selectbox("Select text column", df.columns)
+        column = st.selectbox(
+            "Select text column",
+            df.columns
+        )
 
-        # Optional row limit for huge datasets
+        # Row limiter for speed
         max_rows = st.slider(
-            "Select number of rows to analyze",
+            "Select rows to analyze",
             min_value=10,
             max_value=min(len(df), 5000),
             value=min(len(df), 500)
@@ -103,82 +127,126 @@ with tab2:
 
         if st.button("Run Analysis"):
 
-            # Copy selected rows only
+            # Select only needed rows
             df_subset = df.head(max_rows).copy()
 
-            with st.spinner("⚡ Running AI sentiment analysis..."):
-
-                try:
-                    # Convert text column into list
-                    texts = df_subset[column].astype(str).tolist()
-
-                    # Batch prediction (MUCH FASTER)
-                    predictions = model_basic(
-                        texts,
-                        batch_size=32,
-                        truncation=True
-                    )
-
-                    # Extract labels
-                    results = [pred["label"] for pred in predictions]
-
-                    # Confidence scores
-                    scores = [round(pred["score"] * 100, 2) for pred in predictions]
-
-                    # Add results to dataframe
-                    df_subset["Sentiment"] = results
-                    df_subset["Confidence (%)"] = scores
-
-                    st.success("Analysis Completed Successfully ✅")
-
-                except Exception as e:
-                    st.error(f"Error during analysis: {e}")
-
-            # Show results
-            st.write("### 📄 Results")
-            st.dataframe(df_subset)
-
-            # Distribution chart
-            st.write("### 📊 Sentiment Distribution")
-            st.bar_chart(df_subset["Sentiment"].value_counts())
-
-            # Sentiment counts
-            st.write("### 📈 Summary")
-            st.write(df_subset["Sentiment"].value_counts())
-
-            # Download results
-            csv = df_subset.to_csv(index=False).encode("utf-8")
-
-            st.download_button(
-                label="⬇ Download Results CSV",
-                data=csv,
-                file_name="sentiment_results.csv",
-                mime="text/csv"
+            # Clean + shorten text (MAJOR SPEED BOOST)
+            texts = (
+                df_subset[column]
+                .astype(str)
+                .str.slice(0, 200)
+                .tolist()
             )
+
+            results = []
+            scores = []
+
+            progress = st.progress(0)
+
+            status = st.empty()
+
+            try:
+
+                with st.spinner("⚡ Running AI sentiment analysis..."):
+
+                    batch_size = 64
+
+                    for i in range(0, len(texts), batch_size):
+
+                        batch = texts[i:i + batch_size]
+
+                        preds = model_basic(
+                            batch,
+                            truncation=True
+                        )
+
+                        for pred in preds:
+
+                            results.append(pred["label"])
+
+                            scores.append(
+                                round(pred["score"] * 100, 2)
+                            )
+
+                        # Progress update
+                        progress.progress(
+                            min((i + batch_size) / len(texts), 1.0)
+                        )
+
+                        status.text(
+                            f"Processed {min(i + batch_size, len(texts))}/{len(texts)} rows"
+                        )
+
+                # Add predictions
+                df_subset["Sentiment"] = results
+
+                df_subset["Confidence (%)"] = scores
+
+                st.success("✅ Analysis Completed")
+
+                # Show results
+                st.write("### 📄 Results")
+
+                st.dataframe(df_subset)
+
+                # Distribution chart
+                st.write("### 📊 Sentiment Distribution")
+
+                st.bar_chart(
+                    df_subset["Sentiment"].value_counts()
+                )
+
+                # Summary
+                st.write("### 📈 Summary")
+
+                st.write(
+                    df_subset["Sentiment"].value_counts()
+                )
+
+                # Download CSV
+                csv = df_subset.to_csv(
+                    index=False
+                ).encode("utf-8")
+
+                st.download_button(
+                    label="⬇ Download Results CSV",
+                    data=csv,
+                    file_name="sentiment_results.csv",
+                    mime="text/csv"
+                )
+
+            except Exception as e:
+
+                st.error(f"Error during analysis: {e}")
+
 # =========================================================
 # 📊 TAB 3: INSIGHTS
 # =========================================================
 with tab3:
-    st.subheader("App Insights")
+
+    st.subheader("📊 App Insights")
 
     st.markdown("""
-    ### 🚀 Features:
+    ### 🚀 Features
     - Real-time sentiment prediction
-    - Batch dataset processing
-    - Model comparison
+    - Fast batch dataset processing
+    - Transformer-based NLP
     - Multilingual support
-    - Data visualization
+    - Interactive visualization
+    - Downloadable reports
 
-    ### 🧠 Models Used:
-    - DistilBERT (fast, English)
+    ### 🧠 Models Used
+    - Twitter RoBERTa Sentiment
     - Multilingual BERT
 
-    ### 💡 Use Cases:
+    ### 💡 Use Cases
     - Product review analysis
+    - Customer feedback analytics
     - Social media monitoring
-    - Customer feedback insights
+    - Brand sentiment tracking
     """)
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
+
 st.caption("Built with ❤️ using Streamlit & Transformers")
